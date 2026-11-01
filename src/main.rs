@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+mod archive;
 mod background;
 mod cache_map;
 mod config;
@@ -19,12 +20,13 @@ mod unpack;
 mod web_hook;
 mod whois;
 
+use crate::archive::Archive;
 use crate::background::start_bg_task;
 use crate::dns_client::DnsClient;
 use crate::health_check::run_health_check_if_requested;
 use crate::http::run_http_server;
 use crate::state::AppState;
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use config::Configuration;
 use std::sync::Arc;
 use std::time::Duration;
@@ -65,6 +67,17 @@ async fn main() -> Result<()> {
     // Make configuration visible in logs
     config.log();
 
+    // Deleting mails without a backup of their reports would lose data
+    if config.imap_delete_archived && config.database_file.is_none() {
+        bail!("The setting IMAP_DELETE_ARCHIVED requires a DATABASE_FILE");
+    }
+
+    // Open optional mail archive
+    let archive = match &config.database_file {
+        Some(path) => Some(Archive::open(path).context("Failed to open mail archive")?),
+        None => None,
+    };
+
     // Create DNS client
     let timeout = Duration::from_millis(config.dns_timeout);
     let dns_client = DnsClient::new(config.dns_server, timeout);
@@ -74,7 +87,7 @@ async fn main() -> Result<()> {
 
     // Start background task
     let (stop_sender, stop_receiver) = channel(1);
-    let bg_handle = start_bg_task(config.clone(), state.clone(), stop_receiver);
+    let bg_handle = start_bg_task(config.clone(), state.clone(), archive, stop_receiver);
 
     // Starting HTTP server
     run_http_server(&config, state.clone())

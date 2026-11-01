@@ -63,6 +63,66 @@ pub async fn get_mails(
     Ok(mails)
 }
 
+/// Deletes mails from the IMAP server, the mail UIDs are grouped by IMAP folder.
+/// Uses UID EXPUNGE, so mails flagged for deletion by other clients are not touched.
+pub async fn delete_mails(
+    config: &Configuration,
+    uids_by_folder: &HashMap<String, Vec<u32>>,
+) -> Result<()> {
+    let client = create_client(config)
+        .await
+        .context("Failed to create IMAP client")?;
+
+    let mut session = client
+        .login(&config.imap_user, &config.imap_password)
+        .await
+        .map_err(|e| e.0)
+        .context("Failed to log in and create IMAP session")?;
+    debug!("IMAP login successful");
+
+    for (folder, uids) in uids_by_folder {
+        session
+            .select(folder)
+            .await
+            .context(format!("Failed to select {folder} folder"))?;
+        for chunk in uids.chunks(config.imap_chunk_size.max(1)) {
+            let uid_set = chunk
+                .iter()
+                .map(|uid| uid.to_string())
+                .collect::<Vec<_>>()
+                .join(",");
+
+            let responses: Vec<_> = session
+                .uid_store(&uid_set, "+FLAGS (\\Deleted)")
+                .await
+                .context("Failed to flag mails as deleted")?
+                .collect()
+                .await;
+            for response in responses {
+                response.context("Failed to flag mail as deleted")?;
+            }
+
+            let responses: Vec<_> = session
+                .uid_expunge(&uid_set)
+                .await
+                .context("Failed to expunge deleted mails")?
+                .collect()
+                .await;
+            for response in responses {
+                response.context("Failed to expunge mail")?;
+            }
+            debug!("Deleted {} mail(s) from {folder} folder", chunk.len());
+        }
+    }
+
+    if let Err(err) = session.logout().await {
+        let anyhow_err = anyhow!(err);
+        warn!("Failed to log off from IMAP server: {anyhow_err:#}");
+    }
+
+    Ok(())
+}
+
 /// Lists the requested folder and all its sub-folders up to the requested depth.
 /// Uses the hierarchy delimiter reported by the IMAP server,
 /// since it can differ between servers (some use `/`, others use `.`).

@@ -1,6 +1,8 @@
+use crate::archive::{Archive, ArchiveEntry};
 use crate::config::Configuration;
 use crate::hasher::create_hash;
-use crate::imap::get_mails;
+use crate::imap::{delete_mails, get_mails};
+use crate::mail::Mail;
 use crate::state::{
     AppState, DmarcReportWithMailId, FileType, ReportParsingError, TlsReportWithMailId,
 };
@@ -9,6 +11,7 @@ use crate::web_hook::mail_web_hook;
 use crate::{dmarc, tls};
 use anyhow::{Context, Result};
 use chrono::Local;
+use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
@@ -20,6 +23,7 @@ use tracing::{debug, error, info, trace, warn};
 pub fn start_bg_task(
     config: Configuration,
     state: Arc<RwLock<AppState>>,
+    archive: Option<Archive>,
     mut stop_signal: Receiver<()>,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
@@ -30,7 +34,7 @@ pub fn start_bg_task(
         loop {
             let start = Instant::now();
             info!("Starting background update...");
-            match bg_update(&config, &state, &start).await {
+            match bg_update(&config, &state, archive.as_ref(), &start).await {
                 Ok(new_mails) => {
                     info!("Detected {} new mails", new_mails.len());
                     info!(
@@ -79,10 +83,59 @@ pub fn start_bg_task(
     })
 }
 
+/// Stores mails from the IMAP account with successfully parsed reports in the archive
+/// and deletes them from the IMAP account if requested.
+/// Errors are only logged and never fail the update.
+/// Mails are only deleted after they were stored in the archive.
+async fn archive_mails(
+    config: &Configuration,
+    archive: &Archive,
+    mails: &BTreeMap<String, Mail>,
+    mut imap_bodies: HashMap<String, Vec<u8>>,
+) {
+    let mut entries = Vec::new();
+    let mut uids_by_folder: HashMap<String, Vec<u32>> = HashMap::new();
+    for mail in mails.values() {
+        let has_reports = mail.xml_files + mail.json_files > 0;
+        let has_errors = mail.xml_parsing_errors + mail.json_parsing_errors > 0;
+        if !has_reports || has_errors {
+            continue;
+        }
+        // Mails that are only known from the archive are already stored
+        if let Some(body) = imap_bodies.remove(&mail.id) {
+            entries.push(ArchiveEntry::new(mail, body));
+            uids_by_folder
+                .entry(mail.folder.clone())
+                .or_default()
+                .push(mail.uid);
+        }
+    }
+    if entries.is_empty() {
+        return;
+    }
+
+    let count = entries.len();
+    match archive.store(entries).await {
+        Ok(stored) => info!("Archived {stored} new mails, {count} mails are in the IMAP account"),
+        Err(err) => {
+            warn!("Failed to archive mails, they will not be deleted: {err:#}");
+            return;
+        }
+    }
+
+    if config.imap_delete_archived {
+        match delete_mails(config, &uids_by_folder).await {
+            Ok(()) => info!("Deleted {count} archived mails from the IMAP account"),
+            Err(err) => warn!("Failed to delete archived mails from the IMAP account: {err:#}"),
+        }
+    }
+}
+
 /// Executes a background update and returns the IDs of all new mails
 async fn bg_update(
     config: &Configuration,
     state: &Arc<RwLock<AppState>>,
+    archive: Option<&Archive>,
     start: &Instant,
 ) -> Result<Vec<String>> {
     let mut mails = BTreeMap::new();
@@ -106,6 +159,39 @@ async fn bg_update(
                 .await
                 .context("Failed to get mails")?,
         );
+    }
+
+    // The bodies of the mails from the IMAP account are removed during the extraction.
+    // Keep a copy to be able to archive the mails that contained reports afterwards.
+    let mut imap_bodies: HashMap<String, Vec<u8>> = HashMap::new();
+    if archive.is_some() {
+        for mail in mails.values() {
+            if let Some(body) = &mail.body {
+                imap_bodies.insert(mail.id.clone(), body.clone());
+            }
+        }
+    }
+
+    // Add the archived mails. Mails that are still in the IMAP account are not replaced,
+    // unless their body is missing, for example because the download failed.
+    if let Some(archive) = archive {
+        let archived_mails = archive
+            .load()
+            .await
+            .context("Failed to load mails from archive")?;
+        info!("Loaded {} mails from the archive", archived_mails.len());
+        for archived_mail in archived_mails {
+            match mails.entry(archived_mail.id.clone()) {
+                Entry::Vacant(entry) => {
+                    entry.insert(archived_mail);
+                }
+                Entry::Occupied(mut entry) => {
+                    if entry.get().body.is_none() {
+                        entry.insert(archived_mail);
+                    }
+                }
+            }
+        }
     }
 
     let mut xml_files = BTreeMap::new();
@@ -280,6 +366,10 @@ async fn bg_update(
         dmarc_reports.len(),
         tls_reports.len()
     );
+
+    if let Some(archive) = archive {
+        archive_mails(config, archive, &mails, imap_bodies).await;
+    }
 
     let timestamp = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
