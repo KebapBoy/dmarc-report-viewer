@@ -297,6 +297,16 @@ impl Report {
     pub fn from_slice(xml_file: &[u8]) -> Result<Report> {
         quick_xml::de::from_reader(xml_file).context("Failed to parse XML as DMARC report")
     }
+
+    /// Returns all records where neither DKIM nor SPF passed the DMARC evaluation.
+    /// Messages in these records failed DMARC, a single passing check is enough to pass.
+    pub fn dmarc_failures(&self) -> impl Iterator<Item = &RecordType> {
+        self.record.iter().filter(|record| {
+            let evaluated = &record.row.policy_evaluated;
+            !matches!(evaluated.dkim, Some(DmarcResultType::Pass))
+                && !matches!(evaluated.spf, Some(DmarcResultType::Pass))
+        })
+    }
 }
 
 #[cfg(test)]
@@ -304,6 +314,33 @@ mod tests {
     use super::*;
     use std::fs::File;
     use std::io::BufReader;
+
+    #[test]
+    fn dmarc_failures() {
+        let record = |ip: &str, dkim: &str, spf: &str| {
+            format!(
+                "<record><row><source_ip>{ip}</source_ip><count>2</count><policy_evaluated>\
+                <disposition>none</disposition><dkim>{dkim}</dkim><spf>{spf}</spf>\
+                </policy_evaluated></row><identifiers><header_from>example.com</header_from>\
+                </identifiers><auth_results><spf><domain>example.com</domain><result>pass</result>\
+                </spf></auth_results></record>"
+            )
+        };
+        let xml = format!(
+            "<feedback><report_metadata><org_name>a</org_name><email>a@a.org</email>\
+            <report_id>1</report_id><date_range><begin>1</begin><end>2</end></date_range>\
+            </report_metadata><policy_published><domain>example.com</domain><p>none</p>\
+            </policy_published>{}{}{}{}</feedback>",
+            record("192.0.2.1", "pass", "pass"),
+            record("192.0.2.2", "pass", "fail"),
+            record("192.0.2.3", "fail", "pass"),
+            record("192.0.2.4", "fail", "fail"),
+        );
+        let report = Report::from_slice(xml.as_bytes()).unwrap();
+        let failures: Vec<_> = report.dmarc_failures().collect();
+        assert_eq!(failures.len(), 1);
+        assert_eq!(failures[0].row.source_ip.to_string(), "192.0.2.4");
+    }
 
     #[test]
     fn serde_roundtrip() {

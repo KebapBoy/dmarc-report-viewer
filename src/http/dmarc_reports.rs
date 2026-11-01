@@ -57,7 +57,6 @@ impl ReportHeader {
     fn flags(report: &Report) -> (bool, bool, bool) {
         let mut dkim_flagged = false;
         let mut spf_flagged = false;
-        let mut dmarc_flagged = false;
         for record in &report.record {
             if let Some(dkim) = &record.row.policy_evaluated.dkim
                 && *dkim != DmarcResultType::Pass
@@ -85,16 +84,8 @@ impl ReportHeader {
             {
                 spf_flagged = true;
             }
-            let dkim_eval_pass = matches!(
-                record.row.policy_evaluated.dkim,
-                Some(DmarcResultType::Pass)
-            );
-            let spf_eval_pass =
-                matches!(record.row.policy_evaluated.spf, Some(DmarcResultType::Pass));
-            if !dkim_eval_pass && !spf_eval_pass {
-                dmarc_flagged = true;
-            }
         }
+        let dmarc_flagged = report.dmarc_failures().next().is_some();
         (dkim_flagged, spf_flagged, dmarc_flagged)
     }
 }

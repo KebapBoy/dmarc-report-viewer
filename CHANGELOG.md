@@ -2,6 +2,9 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+* Feature: New mail web hook template parameters `[dmarc_failures]`, `[dmarc_failure_ips]` and `[dmarc_failure_domains]`.
+
 ## [2.7.0] - 2026-10-31
 * Security: Limit maximum number of parallel DNS requests triggered by Web UI.
 * Security: Check peer address for DNS responses.
