@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+* Feature: Optional SQLite database to archive mails with reports, enabled with the new setting `DATABASE_FILE`.
+* Feature: Optional deletion of archived mails from the IMAP account with the new setting `IMAP_DELETE_ARCHIVED`.
+
 ## [2.7.0] - 2026-10-31
 * Security: Limit maximum number of parallel DNS requests triggered by Web UI.
 * Security: Check peer address for DNS responses.
