@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file.
 * Feature: New mail web hook template parameters `[dmarc_failures]`, `[dmarc_failure_ips]` and `[dmarc_failure_domains]`.
 * Feature: Optional SQLite database to archive mails with reports, enabled with the new setting `DATABASE_FILE`.
 * Feature: Optional deletion of archived mails from the IMAP account with the new setting `IMAP_DELETE_ARCHIVED`.
+* Feature: New settings `IMAP_DELETE_MODE` and `IMAP_TRASH_FOLDER` to move archived mails into the trash folder instead of deleting them.
 
 ## [2.7.0] - 2026-10-31
 * Security: Limit maximum number of parallel DNS requests triggered by Web UI.

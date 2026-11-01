@@ -1,4 +1,4 @@
-use crate::config::Configuration;
+use crate::config::{Configuration, ImapDeleteMode};
 use crate::hasher::create_hash;
 use crate::mail::{Mail, decode_subject};
 use anyhow::{Context, Result, anyhow, ensure};
@@ -80,7 +80,20 @@ pub async fn delete_mails(
         .context("Failed to log in and create IMAP session")?;
     debug!("IMAP login successful");
 
+    let trash_folder = match config.imap_delete_mode {
+        ImapDeleteMode::Delete => None,
+        ImapDeleteMode::Trash => Some(
+            find_trash_folder(&mut session, config)
+                .await
+                .context("Failed to find trash folder")?,
+        ),
+    };
+
     for (folder, uids) in uids_by_folder {
+        if trash_folder.as_deref() == Some(folder.as_str()) {
+            debug!("Not moving mails from trash folder {folder} into itself");
+            continue;
+        }
         session
             .select(folder)
             .await
@@ -91,27 +104,11 @@ pub async fn delete_mails(
                 .map(|uid| uid.to_string())
                 .collect::<Vec<_>>()
                 .join(",");
-
-            let responses: Vec<_> = session
-                .uid_store(&uid_set, "+FLAGS (\\Deleted)")
-                .await
-                .context("Failed to flag mails as deleted")?
-                .collect()
-                .await;
-            for response in responses {
-                response.context("Failed to flag mail as deleted")?;
+            match &trash_folder {
+                Some(trash) => move_mails(&mut session, &uid_set, trash).await?,
+                None => expunge_mails(&mut session, &uid_set).await?,
             }
-
-            let responses: Vec<_> = session
-                .uid_expunge(&uid_set)
-                .await
-                .context("Failed to expunge deleted mails")?
-                .collect()
-                .await;
-            for response in responses {
-                response.context("Failed to expunge mail")?;
-            }
-            debug!("Deleted {} mail(s) from {folder} folder", chunk.len());
+            debug!("Removed {} mail(s) from {folder} folder", chunk.len());
         }
     }
 
@@ -121,6 +118,82 @@ pub async fn delete_mails(
     }
 
     Ok(())
+}
+
+/// Flags the mails in the selected folder as deleted and expunges them.
+/// Uses UID EXPUNGE, so mails flagged for deletion by other clients are not touched.
+async fn expunge_mails(session: &mut Session, uid_set: &str) -> Result<()> {
+    let responses: Vec<_> = session
+        .uid_store(uid_set, "+FLAGS (\\Deleted)")
+        .await
+        .context("Failed to flag mails as deleted")?
+        .collect()
+        .await;
+    for response in responses {
+        response.context("Failed to flag mail as deleted")?;
+    }
+
+    let responses: Vec<_> = session
+        .uid_expunge(uid_set)
+        .await
+        .context("Failed to expunge deleted mails")?
+        .collect()
+        .await;
+    for response in responses {
+        response.context("Failed to expunge mail")?;
+    }
+    Ok(())
+}
+
+/// Moves mails from the selected folder into another folder.
+/// Uses the MOVE command and falls back to COPY and EXPUNGE for servers without MOVE support.
+async fn move_mails(session: &mut Session, uid_set: &str, target_folder: &str) -> Result<()> {
+    if let Err(err) = session.uid_mv(uid_set, target_folder).await {
+        debug!("Failed to move mails ({err}), falling back to copy and expunge");
+        session
+            .uid_copy(uid_set, target_folder)
+            .await
+            .context(format!("Failed to copy mails to {target_folder} folder"))?;
+        expunge_mails(session, uid_set).await?;
+    }
+    Ok(())
+}
+
+/// Returns the configured trash folder or looks for the folder
+/// with the trash attribute reported by the IMAP server (RFC 6154).
+async fn find_trash_folder(session: &mut Session, config: &Configuration) -> Result<String> {
+    if let Some(folder) = &config.imap_trash_folder {
+        return Ok(folder.clone());
+    }
+
+    let names: Vec<_> = session
+        .list(Some(""), Some("*"))
+        .await
+        .context("Failed to list folders")?
+        .collect()
+        .await;
+    let mut folders = Vec::new();
+    for name in names {
+        let name = name.context("Failed to get next folder from IMAP list response")?;
+        let is_trash = name
+            .attributes()
+            .iter()
+            .any(|attribute| matches!(attribute, NameAttribute::Trash));
+        folders.push((name.name().to_string(), is_trash));
+    }
+
+    let folder = pick_trash_folder(folders)
+        .context("The IMAP server did not report a trash folder, please set IMAP_TRASH_FOLDER")?;
+    debug!("Detected trash folder {folder}");
+    Ok(folder)
+}
+
+/// Picks the first folder that is marked as trash folder
+fn pick_trash_folder(folders: Vec<(String, bool)>) -> Option<String> {
+    folders
+        .into_iter()
+        .find(|(_, is_trash)| *is_trash)
+        .map(|(name, _)| name)
 }
 
 /// Lists the requested folder and all its sub-folders up to the requested depth.
@@ -515,5 +588,33 @@ fn addrs_to_string(addrs: Option<&[Address]>) -> String {
             .join("; ")
     } else {
         String::from("n/a")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pick_trash_folder_uses_marked_folder() {
+        let folders = vec![
+            (String::from("INBOX"), false),
+            (String::from("[Gmail]/Trash"), true),
+            (String::from("[Gmail]/Spam"), false),
+        ];
+        assert_eq!(
+            pick_trash_folder(folders),
+            Some(String::from("[Gmail]/Trash"))
+        );
+    }
+
+    #[test]
+    fn pick_trash_folder_without_marked_folder() {
+        let folders = vec![
+            (String::from("INBOX"), false),
+            (String::from("Trash"), false),
+        ];
+        assert_eq!(pick_trash_folder(folders), None);
+        assert_eq!(pick_trash_folder(Vec::new()), None);
     }
 }
