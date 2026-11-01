@@ -77,6 +77,9 @@ pub struct DmarcSummary {
 
     /// Map of DMARC DKIM auth results
     pub dkim_auth_results: HashMap<DkimResultType, usize>,
+
+    /// Map of the overall DMARC results, a message passes DMARC if SPF or DKIM passed the policy evaluation
+    pub dmarc_results: HashMap<DmarcResultType, usize>,
 }
 
 #[derive(Serialize, Default, Clone)]
@@ -192,6 +195,14 @@ impl Summary {
                     *dmarc.dkim_policy_results.entry(result.clone()).or_insert(0) +=
                         record.row.count;
                 }
+                let spf_pass = record.row.policy_evaluated.spf == Some(DmarcResultType::Pass);
+                let dkim_pass = record.row.policy_evaluated.dkim == Some(DmarcResultType::Pass);
+                let result = if spf_pass || dkim_pass {
+                    DmarcResultType::Pass
+                } else {
+                    DmarcResultType::Fail
+                };
+                *dmarc.dmarc_results.entry(result).or_insert(0) += record.row.count;
             }
         }
         for TlsReportWithMailId { report, .. } in reports.tls.values() {
@@ -248,5 +259,63 @@ impl Summary {
             dmarc,
             tls,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::dmarc::Report;
+
+    fn record(ip: &str, dkim: &str, spf: &str, count: usize) -> String {
+        format!(
+            "<record><row><source_ip>{ip}</source_ip><count>{count}</count><policy_evaluated>\
+            <disposition>none</disposition><dkim>{dkim}</dkim><spf>{spf}</spf>\
+            </policy_evaluated></row><identifiers><header_from>example.com</header_from>\
+            </identifiers><auth_results><spf><domain>example.com</domain><result>pass</result>\
+            </spf></auth_results></record>"
+        )
+    }
+
+    #[test]
+    fn dmarc_results_fail_only_if_spf_and_dkim_failed() {
+        let xml = format!(
+            "<feedback><report_metadata><org_name>a</org_name><email>a@a.org</email>\
+            <report_id>1</report_id><date_range><begin>1</begin><end>2</end></date_range>\
+            </report_metadata><policy_published><domain>example.com</domain><p>none</p>\
+            </policy_published>{}{}{}{}</feedback>",
+            record("192.0.2.1", "pass", "pass", 1),
+            record("192.0.2.2", "pass", "fail", 2),
+            record("192.0.2.3", "fail", "pass", 3),
+            record("192.0.2.4", "fail", "fail", 4),
+        );
+        let report = Report::from_slice(xml.as_bytes()).unwrap();
+        let mut dmarc = BTreeMap::new();
+        dmarc.insert(
+            String::from("hash"),
+            DmarcReportWithMailId {
+                mail_id: String::from("mail"),
+                report,
+            },
+        );
+        let tls = BTreeMap::new();
+
+        let summary = Summary::new(
+            1,
+            Reports {
+                dmarc: &dmarc,
+                tls: &tls,
+            },
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+
+        let results = &summary.dmarc.dmarc_results;
+        assert_eq!(results.get(&DmarcResultType::Pass), Some(&6));
+        assert_eq!(results.get(&DmarcResultType::Fail), Some(&4));
+        assert_eq!(results.len(), 2);
     }
 }
