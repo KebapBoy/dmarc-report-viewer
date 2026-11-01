@@ -125,8 +125,8 @@ async fn archive_mails(
 
     if config.imap_delete_archived {
         match delete_mails(config, &uids_by_folder).await {
-            Ok(()) => info!("Deleted {count} archived mails from the IMAP account"),
-            Err(err) => warn!("Failed to delete archived mails from the IMAP account: {err:#}"),
+            Ok(()) => info!("Removed {count} archived mails from the IMAP account"),
+            Err(err) => warn!("Failed to remove archived mails from the IMAP account: {err:#}"),
         }
     }
 }

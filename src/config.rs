@@ -78,9 +78,26 @@ pub struct Configuration {
     /// Delete mails from the IMAP account after they were stored in the database.
     /// Only mails with at least one report and without any parsing errors will be deleted.
     /// Requires a database file, because the reports would be lost otherwise.
-    /// Please note that some IMAP servers, like Gmail, move deleted mails to a trash folder.
+    /// Please note that some IMAP servers, like Gmail, can be configured to move deleted mails
+    /// to a trash folder or to delete them permanently, depending on the account settings.
+    /// Use `IMAP_DELETE_MODE=trash` to always move the mails into the trash folder.
     #[arg(long, env)]
     pub imap_delete_archived: bool,
+
+    /// Method used for deleting archived mails from the IMAP account.
+    /// `delete` flags the mails as deleted and expunges them, which is a permanent deletion
+    /// on most servers. `trash` moves the mails to the trash folder instead, so they can still be
+    /// restored there until the server or the user empties the trash.
+    /// Only used together with `IMAP_DELETE_ARCHIVED`.
+    #[arg(long, env, default_value = "delete")]
+    pub imap_delete_mode: ImapDeleteMode,
+
+    /// Name of the IMAP trash folder used by the delete mode `trash`.
+    /// By default the folder is detected automatically using the special use attributes
+    /// reported by the IMAP server (RFC 6154), for example `[Gmail]/Trash` for Gmail.
+    /// Set this value if the folder is not detected or if you want to use a different one.
+    #[arg(long, env)]
+    pub imap_trash_folder: Option<String>,
 
     /// Method of requesting the mail body from the IMAP server.
     /// The default should work for most IMAP servers.
@@ -248,6 +265,8 @@ impl Configuration {
         info!("IMAP Folder Depth: {}", self.imap_folder_depth);
         info!("Database File: {:?}", self.database_file);
         info!("IMAP Delete Archived: {}", self.imap_delete_archived);
+        info!("IMAP Delete Mode: {:?}", self.imap_delete_mode);
+        info!("IMAP Trash Folder: {:?}", self.imap_trash_folder);
         info!("IMAP Check Interval: {} seconds", self.imap_check_interval);
         info!(
             "IMAP Schedule: {}",
@@ -297,6 +316,15 @@ impl Configuration {
         info!("DNS Server: {}", self.dns_server);
         info!("DNS Timeout: {}", self.dns_timeout);
     }
+}
+
+#[derive(Clone, ValueEnum, Debug, Default)]
+pub enum ImapDeleteMode {
+    /// Flag mails as deleted and expunge them
+    #[default]
+    Delete,
+    /// Move mails to the trash folder
+    Trash,
 }
 
 #[derive(Clone, ValueEnum, Debug, Default)]

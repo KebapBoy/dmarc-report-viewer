@@ -98,7 +98,12 @@ If you also set `IMAP_DELETE_ARCHIVED=true`, mails are deleted from the IMAP acc
 Only mails with at least one report and without any parsing errors are deleted.
 Nothing is deleted if storing the mails in the database failed.
 The application refuses to start with this setting if no database file is configured.
-Some IMAP servers, like Gmail, do not delete the mails immediately and move them into a trash folder.
+What happens to deleted mails depends on the IMAP server and the account settings.
+For example, Gmail can be configured to either delete the mails permanently or to move them into the trash folder.
+Use the setting `IMAP_DELETE_MODE=trash` to always move the mails into the trash folder instead.
+The trash folder is detected automatically, or you can set it with `IMAP_TRASH_FOLDER` (for example `[Gmail]/Trash`).
+Mails in the trash folder can be restored until the server or you empty the trash.
+The default mode `delete` flags the mails as deleted and expunges them.
 
     sudo docker run --rm \
       -e IMAP_HOST=imap.mymailserver.com \
