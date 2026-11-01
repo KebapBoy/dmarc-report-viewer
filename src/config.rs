@@ -199,7 +199,10 @@ pub struct Configuration {
     /// `[folder]` IMAP folder of the mail,
     /// `[account]` IMAP account that received the mail,
     /// `[dmarc_reports]` Number of DMARC reports in the mail,
-    /// `[tls_reports]` Number of SMTP TLS Reports in the mail
+    /// `[tls_reports]` Number of SMTP TLS Reports in the mail,
+    /// `[dmarc_failures]` Number of messages in the mail that failed DMARC,
+    /// `[dmarc_failure_ips]` Comma separated source IPs of the messages that failed DMARC,
+    /// `[dmarc_failure_domains]` Comma separated From domains of the messages that failed DMARC
     #[arg(long, env)]
     pub mail_web_hook_body: Option<String>,
 

@@ -2,6 +2,9 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+* Feature: New mail web hook template parameters `[dmarc_failures]`, `[dmarc_failure_ips]` and `[dmarc_failure_domains]`.
+
 ## [2.7.2] - 2026-11-16
 * Fix: Do not flag SPF `None` and `Neutral` results as problematic in mail sources (see issue #102).
 

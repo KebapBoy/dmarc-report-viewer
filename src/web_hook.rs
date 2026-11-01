@@ -3,7 +3,7 @@ use crate::http_client::http_request;
 use crate::state::AppState;
 use anyhow::{Context, Result};
 use hyper::Method;
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -105,6 +105,21 @@ async fn get_mail_details(
         .filter(|r| r.mail_id == mail_id)
         .count();
 
+    let mut failed_messages = 0;
+    let mut failed_ips = BTreeSet::new();
+    let mut failed_domains = BTreeSet::new();
+    for report in locked_state
+        .dmarc_reports
+        .values()
+        .filter(|r| r.mail_id == mail_id)
+    {
+        for record in report.report.dmarc_failures() {
+            failed_messages += record.row.count;
+            failed_ips.insert(record.row.source_ip.to_string());
+            failed_domains.insert(sanitize(&record.identifiers.header_from));
+        }
+    }
+
     let mut result = HashMap::new();
     result.insert("id", mail_id.to_string());
     result.insert("uid", mail.uid.to_string());
@@ -114,5 +129,33 @@ async fn get_mail_details(
     result.insert("account", mail.account.clone());
     result.insert("dmarc_reports", dmarc_reports.to_string());
     result.insert("tls_reports", tls_reports.to_string());
+    result.insert("dmarc_failures", failed_messages.to_string());
+    result.insert("dmarc_failure_ips", join(&failed_ips));
+    result.insert("dmarc_failure_domains", join(&failed_domains));
     Ok(result)
+}
+
+/// Report content is controlled by the sender of the mail.
+/// Reduce it to harmless characters, so it can be safely used inside templates like JSON bodies.
+fn sanitize(value: &str) -> String {
+    value
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' | ':'))
+        .collect()
+}
+
+fn join(values: &BTreeSet<String>) -> String {
+    values.iter().cloned().collect::<Vec<_>>().join(", ")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sanitize_removes_special_characters() {
+        assert_eq!(sanitize("example.com"), "example.com");
+        assert_eq!(sanitize("a\"b\\c\n},{\"x\":1"), "abcx:1");
+        assert_eq!(sanitize("2001:db8::1"), "2001:db8::1");
+    }
 }
