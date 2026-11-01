@@ -68,6 +68,20 @@ pub struct Configuration {
     #[arg(long, env, default_value_t = 0)]
     pub imap_folder_depth: usize,
 
+    /// Path of an optional SQLite database file that archives all mails with successfully parsed reports.
+    /// Archived mails are loaded together with the mails from the IMAP account and are processed in the same way.
+    /// The file is created if it does not exist. In Docker, put it in a persisted volume.
+    /// Together with `IMAP_DELETE_ARCHIVED` this allows to remove the mails from the IMAP account.
+    #[arg(long, env)]
+    pub database_file: Option<PathBuf>,
+
+    /// Delete mails from the IMAP account after they were stored in the database.
+    /// Only mails with at least one report and without any parsing errors will be deleted.
+    /// Requires a database file, because the reports would be lost otherwise.
+    /// Please note that some IMAP servers, like Gmail, move deleted mails to a trash folder.
+    #[arg(long, env)]
+    pub imap_delete_archived: bool,
+
     /// Method of requesting the mail body from the IMAP server.
     /// The default should work for most IMAP servers.
     /// Only try other values if you have issues with missing mail bodies.
@@ -235,6 +249,8 @@ impl Configuration {
         info!("IMAP DMARC Folder: {:?}", self.imap_folder_dmarc);
         info!("IMAP TLS Folder: {:?}", self.imap_folder_tls);
         info!("IMAP Folder Depth: {}", self.imap_folder_depth);
+        info!("Database File: {:?}", self.database_file);
+        info!("IMAP Delete Archived: {}", self.imap_delete_archived);
         info!("IMAP Check Interval: {} seconds", self.imap_check_interval);
         info!(
             "IMAP Schedule: {}",

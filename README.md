@@ -81,10 +81,36 @@ Here is an example:
       ghcr.io/cry-inc/dmarc-report-viewer
 
 ### Application Data
-This application does not store any reports in a database or in any other kind of file.
+By default, this application does not store any reports in a database or in any other kind of file.
 All data is kept in memory and fetched fresh each time from the configured IMAP account.
 The only exception is the certificate cache folder when using Let's Encrypt;
 this folder should be persisted between application restarts.
+
+### Mail Archive
+Without a database, all report mails have to stay in the IMAP account, or they disappear from the application.
+You can optionally enable a SQLite database that archives all mails with successfully parsed reports.
+Set the ENV variable `DATABASE_FILE` to the path of the database file.
+It is created if it does not exist, so it should be located in a persisted folder or volume.
+The archived mails are loaded together with the mails from the IMAP account and are processed in exactly the same way.
+Mails that are still in the IMAP account are not stored twice.
+
+If you also set `IMAP_DELETE_ARCHIVED=true`, mails are deleted from the IMAP account after they were stored in the database.
+Only mails with at least one report and without any parsing errors are deleted.
+Nothing is deleted if storing the mails in the database failed.
+The application refuses to start with this setting if no database file is configured.
+Some IMAP servers, like Gmail, do not delete the mails immediately and move them into a trash folder.
+
+    sudo docker run --rm \
+      -e IMAP_HOST=imap.mymailserver.com \
+      -e IMAP_USER=dmarc@mymailserver.com \
+      -e IMAP_PASSWORD=mysecurepassword \
+      -e DATABASE_FILE=/data/reports.db \
+      -e IMAP_DELETE_ARCHIVED=true \
+      -v /path/on/my/host:/data \
+      -p 8080:8080 \
+      ghcr.io/cry-inc/dmarc-report-viewer
+
+Please note that the database contains the complete reports mails, so it should be included in your backups.
 
 ### IMAP Folders
 By default, a single `INBOX` folder is used to look for all supported report types.
