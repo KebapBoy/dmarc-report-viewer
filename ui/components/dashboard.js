@@ -177,7 +177,8 @@ export class Dashboard extends LitElement {
         if (Object.values(summary.dmarc.dkim_policy_results).every((v) => v === 0)) this.classesToHide.push("dkim_policy");
         if (Object.values(summary.dmarc.spf_auth_results).every((v) => v === 0)) this.classesToHide.push("spf_auth");
         if (Object.values(summary.dmarc.dkim_auth_results).every((v) => v === 0)) this.classesToHide.push("dkim_auth");
-        const allDmarcCharts = ["dmarc_orgs", "dmarc_domains", "spf_policy", "dkim_policy", "spf_auth", "dkim_auth"];
+        if (Object.values(summary.dmarc.dmarc_results).every((v) => v === 0)) this.classesToHide.push("dmarc_results");
+        const allDmarcCharts = ["dmarc_orgs", "dmarc_domains", "spf_policy", "dkim_policy", "spf_auth", "dkim_auth", "dmarc_results"];
         if (allDmarcCharts.every(c => this.classesToHide.includes(c))) this.classesToHide.push("dmarc_charts");
 
         if (Object.values(summary.tls.orgs).every((v) => v === 0)) this.classesToHide.push("tls_orgs");
@@ -213,6 +214,11 @@ export class Dashboard extends LitElement {
 
         if (this.dkim_auth_chart) this.dkim_auth_chart.destroy();
         this.dkim_auth_chart = await this.createPieChart("dkim_auth_chart", this.sortedMap(summary.dmarc.dkim_auth_results), resultColorMap);
+
+        if (this.dmarc_results_chart) this.dmarc_results_chart.destroy();
+        this.dmarc_results_chart = await this.createPieChart("dmarc_results_chart", this.sortedMap(summary.dmarc.dmarc_results), resultColorMap, function (label) {
+            if (label === "fail") window.location.hash = "#/dmarc-reports?flagged_dmarc=true";
+        });
 
 
         if (this.tls_orgs_chart) this.tls_orgs_chart.destroy();
@@ -394,6 +400,11 @@ export class Dashboard extends LitElement {
                 <div class="module dkim_auth">
                     <h3>DKIM Auth Results</h3>
                     <canvas class="dkim_auth_chart"></canvas>
+                </div>
+
+                <div class="module dmarc_results">
+                    <h3>DMARC Results</h3>
+                    <canvas class="dmarc_results_chart"></canvas>
                 </div>
             </div>
 
