@@ -4,6 +4,14 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Dependencies](https://deps.rs/repo/github/cry-inc/dmarc-report-viewer/status.svg)](https://deps.rs/repo/github/cry-inc/dmarc-report-viewer)
 
+> **This is a modified fork** of [cry-inc/dmarc-report-viewer](https://github.com/cry-inc/dmarc-report-viewer), maintained by [KebapBoy](https://github.com/KebapBoy). It adds:
+>
+> - an optional SQLite [mail archive](#mail-archive) that can delete archived mails from the IMAP account or move them to the trash,
+> - the mail web hook parameters `[dmarc_failures]`, `[dmarc_failure_ips]` and `[dmarc_failure_domains]`,
+> - a dashboard chart with the overall DMARC results.
+>
+> Details are in the `[Unreleased]` section of the [CHANGELOG](CHANGELOG.md). Each change is kept in its own branch so it can be offered upstream.
+
 A lightweight, standalone [DMARC](https://en.wikipedia.org/wiki/DMARC#Aggregate_reports) and [SMTP TLS](https://en.wikipedia.org/wiki/Simple_Mail_Transfer_Protocol#SMTP_TLS_Reporting) report viewer.
 Ideal for smaller self-hosted mail servers, to browse, visualize, and analyze the reports.
 
