@@ -283,6 +283,58 @@ pub struct RecordType {
     pub auth_results: AuthResultType,
 }
 
+impl RecordType {
+    pub fn has_spf_policy_issue(&self) -> bool {
+        if let Some(spf) = &self.row.policy_evaluated.spf
+            && *spf != DmarcResultType::Pass
+        {
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn has_spf_auth_issue(&self) -> bool {
+        // One negative result is enough
+        self.auth_results.spf.iter().any(|x| {
+            x.result != SpfResultType::Pass
+                && x.result != SpfResultType::None
+                && x.result != SpfResultType::Neutral
+        })
+    }
+
+    pub fn has_dkim_policy_issue(&self) -> bool {
+        if let Some(dkim) = &self.row.policy_evaluated.dkim
+            && *dkim != DmarcResultType::Pass
+        {
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn has_dkim_auth_issue(&self) -> bool {
+        // One passing signature is enough, mails can carry multiple
+        // signatures (e.g. ed25519 + RSA) and receivers may not support all.
+        if let Some(dkim) = &self.auth_results.dkim
+            && !dkim.is_empty()
+            && dkim.iter().all(|x| x.result != DkimResultType::Pass)
+        {
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Returns true if the record has a DMARC issue,
+    /// meaning that both DKIM and SPF failed the evaluation.
+    pub fn has_dmarc_issue(&self) -> bool {
+        let dkim_eval_pass = matches!(self.row.policy_evaluated.dkim, Some(DmarcResultType::Pass));
+        let spf_eval_pass = matches!(self.row.policy_evaluated.spf, Some(DmarcResultType::Pass));
+        !dkim_eval_pass && !spf_eval_pass
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename = "feedback")]
 pub struct Report {
@@ -301,11 +353,7 @@ impl Report {
     /// Returns all records where neither DKIM nor SPF passed the DMARC evaluation.
     /// Messages in these records failed DMARC, a single passing check is enough to pass.
     pub fn dmarc_failures(&self) -> impl Iterator<Item = &RecordType> {
-        self.record.iter().filter(|record| {
-            let evaluated = &record.row.policy_evaluated;
-            !matches!(evaluated.dkim, Some(DmarcResultType::Pass))
-                && !matches!(evaluated.spf, Some(DmarcResultType::Pass))
-        })
+        self.record.iter().filter(|record| record.has_dmarc_issue())
     }
 }
 

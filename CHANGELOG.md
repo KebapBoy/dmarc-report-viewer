@@ -10,6 +10,13 @@ All notable changes to this project will be documented in this file.
 * Feature: New dashboard chart with the overall DMARC results. A message passes DMARC if SPF or DKIM passed.
   Clicking on the failed results opens the list of DMARC reports with DMARC failures.
 
+## [2.7.2] - 2026-11-16
+* Fix: Do not flag SPF `None` and `Neutral` results as problematic in mail sources (see issue #102).
+
+## [2.7.1] - 2026-11-15
+* Fix: Do not flag SPF `None` and `Neutral` results as problematic in DMARC reports (see issue #102).
+* Updated Cargo dependencies.
+
 ## [2.7.0] - 2026-10-31
 * Security: Limit maximum number of parallel DNS requests triggered by Web UI.
 * Security: Check peer address for DNS responses.

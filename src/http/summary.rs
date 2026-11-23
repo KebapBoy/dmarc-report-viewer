@@ -195,12 +195,10 @@ impl Summary {
                     *dmarc.dkim_policy_results.entry(result.clone()).or_insert(0) +=
                         record.row.count;
                 }
-                let spf_pass = record.row.policy_evaluated.spf == Some(DmarcResultType::Pass);
-                let dkim_pass = record.row.policy_evaluated.dkim == Some(DmarcResultType::Pass);
-                let result = if spf_pass || dkim_pass {
-                    DmarcResultType::Pass
-                } else {
+                let result = if record.has_dmarc_issue() {
                     DmarcResultType::Fail
+                } else {
+                    DmarcResultType::Pass
                 };
                 *dmarc.dmarc_results.entry(result).or_insert(0) += record.row.count;
             }

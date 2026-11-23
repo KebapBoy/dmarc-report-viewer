@@ -1,7 +1,4 @@
-use crate::dmarc::DkimResultType;
-use crate::dmarc::DmarcResultType;
 use crate::dmarc::Report;
-use crate::dmarc::SpfResultType;
 use crate::state::AppState;
 use axum::Json;
 use axum::extract::Path;
@@ -57,35 +54,24 @@ impl ReportHeader {
     fn flags(report: &Report) -> (bool, bool, bool) {
         let mut dkim_flagged = false;
         let mut spf_flagged = false;
+        let mut dmarc_flagged = false;
         for record in &report.record {
-            if let Some(dkim) = &record.row.policy_evaluated.dkim
-                && *dkim != DmarcResultType::Pass
-            {
+            if record.has_dkim_policy_issue() {
                 dkim_flagged = true;
             }
-            if let Some(spf) = &record.row.policy_evaluated.spf
-                && *spf != DmarcResultType::Pass
-            {
+            if record.has_spf_policy_issue() {
                 spf_flagged = true;
             }
-            // One passing signature is enough, mails can carry multiple
-            // signatures (e.g. ed25519 + RSA) and receivers may not support all.
-            if let Some(dkim) = &record.auth_results.dkim
-                && !dkim.is_empty()
-                && dkim.iter().all(|x| x.result != DkimResultType::Pass)
-            {
+            if record.has_dkim_auth_issue() {
                 dkim_flagged = true;
             }
-            if record
-                .auth_results
-                .spf
-                .iter()
-                .any(|x| x.result != SpfResultType::Pass)
-            {
+            if record.has_spf_auth_issue() {
                 spf_flagged = true;
+            }
+            if record.has_dmarc_issue() {
+                dmarc_flagged = true;
             }
         }
-        let dmarc_flagged = report.dmarc_failures().next().is_some();
         (dkim_flagged, spf_flagged, dmarc_flagged)
     }
 }
